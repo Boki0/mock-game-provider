@@ -1,8 +1,11 @@
 const express = require("express");
+const crypto = require("crypto");
 const path = require("path");
 
 const app = express();
 const port = process.env.PORT || 8090;
+const providerBaseUrl = (process.env.PROVIDER_BASE_URL || "http://localhost:8090").replace(/\/+$/, "");
+const sessions = new Map();
 
 const providers = [
   { providerCode: "AURORA_PLAY", name: "Aurora Play", active: true },
@@ -70,6 +73,69 @@ app.get("/api/games", (req, res) => {
     : games;
 
   res.status(200).json(result);
+});
+
+app.post("/api/launch", (req, res) => {
+  const { providerCode, gameCode, playerId, currency, mode = "REAL" } = req.body;
+  const requiredFields = { providerCode, gameCode, playerId, currency };
+  const missingFields = Object.entries(requiredFields)
+    .filter(([, value]) => value === undefined || value === null || value === "")
+    .map(([field]) => field);
+
+  if (missingFields.length > 0) {
+    return res.status(400).json({
+      error: `Missing required fields: ${missingFields.join(", ")}`
+    });
+  }
+
+  if (mode !== "REAL") {
+    return res.status(400).json({
+      error: 'mode must be "REAL"'
+    });
+  }
+
+  const provider = providers.find((item) => item.providerCode === providerCode);
+  if (!provider) {
+    return res.status(404).json({ error: "Provider not found" });
+  }
+
+  const game = games.find((item) => item.gameCode === gameCode);
+  if (!game) {
+    return res.status(404).json({ error: "Game not found" });
+  }
+
+  if (game.providerCode !== providerCode) {
+    return res.status(400).json({
+      error: "Game does not belong to the specified provider"
+    });
+  }
+
+  const sessionId = crypto.randomUUID();
+  const session = {
+    sessionId,
+    providerCode,
+    gameCode,
+    playerId,
+    currency,
+    mode: "REAL",
+    status: "ACTIVE",
+    createdAt: new Date().toISOString()
+  };
+
+  sessions.set(sessionId, session);
+
+  const launchUrl = `${providerBaseUrl}/games/lucky-seven/?sessionId=${encodeURIComponent(sessionId)}`;
+  return res.status(200).json({ sessionId, launchUrl });
+});
+
+app.get("/api/sessions/:sessionId", (req, res) => {
+  const session = sessions.get(req.params.sessionId);
+
+  if (!session) {
+    return res.status(404).json({ error: "Session not found" });
+  }
+
+  return res.status(200).json(session);
 });
 
 app.listen(port, "0.0.0.0", () => {

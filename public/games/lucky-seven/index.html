@@ -10,7 +10,6 @@
     //
   }
   </script>
-  <script src="assets/js/main.js"></script>
   <style>
     body {
       width: 100vw;
@@ -25,9 +24,65 @@
       flex: 1 1 auto;
       min-height: 0;
     }
+    #game-error {
+      max-width: 36rem;
+      margin: auto;
+      padding: 1.5rem;
+      color: #fff;
+      font-family: Arial, sans-serif;
+      font-size: 1.1rem;
+      text-align: center;
+    }
   </style>
 </head>
 <body>
-  <div id="slot-machine"></div>
+  <div id="game-error" role="alert" hidden></div>
+  <div id="slot-machine" hidden></div>
+  <script>
+    (async function initializeGame() {
+      const gameContainer = document.getElementById("slot-machine");
+      const errorContainer = document.getElementById("game-error");
+      const sessionId = new URLSearchParams(window.location.search).get("sessionId");
+
+      function showError(message) {
+        gameContainer.hidden = true;
+        errorContainer.textContent = message;
+        errorContainer.hidden = false;
+      }
+
+      if (!sessionId) {
+        showError("Unable to launch game: sessionId is required.");
+        return;
+      }
+
+      try {
+        const response = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}`, {
+          headers: { Accept: "application/json" }
+        });
+
+        if (!response.ok) {
+          showError("Unable to launch game: session is invalid.");
+          return;
+        }
+
+        const session = await response.json();
+        if (session.status !== "ACTIVE") {
+          showError("Unable to launch game: session is not active.");
+          return;
+        }
+
+        gameContainer.hidden = false;
+
+        const gameScript = document.createElement("script");
+        gameScript.src = "assets/js/main.js";
+        gameScript.onerror = () => {
+          showError("Unable to launch game: game assets could not be loaded.");
+        };
+        document.head.appendChild(gameScript);
+      } catch (error) {
+        showError("Unable to launch game: session could not be verified.");
+      }
+    })();
+  </script>
 </body>
 </html>
