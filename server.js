@@ -4,6 +4,45 @@ const path = require("path");
 const app = express();
 const port = process.env.PORT || 8090;
 
+const providers = [
+  { providerCode: "AURORA_PLAY", name: "Aurora Play", active: true },
+  { providerCode: "NOVA_REELS", name: "Nova Reels", active: true },
+  { providerCode: "ATLAS_GAMING", name: "Atlas Gaming", active: true },
+  { providerCode: "ORBIT_SLOTS", name: "Orbit Slots", active: true },
+  { providerCode: "EMBER_GAMES", name: "Ember Games", active: true }
+];
+
+const createGame = (gameCode, providerCode, name, imgUrl) => ({
+  gameCode,
+  providerCode,
+  name,
+  category: "SLOTS",
+  active: true,
+  supportedCurrencies: ["EUR"],
+  supportedPlatforms: ["DESKTOP", "MOBILE"],
+  minBet: 1,
+  maxBet: 1000,
+  imgUrl
+});
+
+const games = [
+  createGame("AURORA_FORTUNE", "AURORA_PLAY", "Aurora Fortune", "/images/aurora-fortune.jpg"),
+  createGame("AURORA_NORTHERN_LIGHTS", "AURORA_PLAY", "Northern Lights", "/images/northern-lights.jpg"),
+  createGame("AURORA_GOLDEN_HORIZON", "AURORA_PLAY", "Golden Horizon", "/images/golden-horizon.jpg"),
+  createGame("NOVA_SEVEN", "NOVA_REELS", "Nova Seven", "/images/nova-seven.jpg"),
+  createGame("NOVA_COSMIC_FRUITS", "NOVA_REELS", "Cosmic Fruits", "/images/cosmic-fruits.jpg"),
+  createGame("NOVA_STAR_VAULT", "NOVA_REELS", "Star Vault", "/images/star-vault.jpg"),
+  createGame("ATLAS_TREASURE", "ATLAS_GAMING", "Atlas Treasure", "/images/atlas-treasure.jpg"),
+  createGame("ATLAS_TEMPLE_OF_COINS", "ATLAS_GAMING", "Temple of Coins", "/images/temple-of-coins.jpg"),
+  createGame("ATLAS_TITAN_RICHES", "ATLAS_GAMING", "Titan Riches", "/images/titan-riches.jpg"),
+  createGame("ORBIT_WILDS", "ORBIT_SLOTS", "Orbit Wilds", "/images/orbit-wilds.jpg"),
+  createGame("ORBIT_GALAXY_GEMS", "ORBIT_SLOTS", "Galaxy Gems", "/images/galaxy-gems.jpg"),
+  createGame("ORBIT_MOON_JACKPOT", "ORBIT_SLOTS", "Moon Jackpot", "/images/moon-jackpot.jpg"),
+  createGame("EMBER_GOLD", "EMBER_GAMES", "Ember Gold", "/images/ember-gold.jpg"),
+  createGame("EMBER_FIRE_REELS", "EMBER_GAMES", "Fire Reels", "/images/fire-reels.jpg"),
+  createGame("EMBER_DRAGON_COINS", "EMBER_GAMES", "Dragon Coins", "/images/dragon-coins.jpg")
+];
+
 app.use(express.json());
 app.use(express.static(path.join(__dirname, "public")));
 
@@ -18,6 +57,19 @@ app.get("/health", (req, res) => {
   res.status(200).json({
     status: "UP"
   });
+});
+
+app.get("/api/providers", (req, res) => {
+  res.status(200).json(providers);
+});
+
+app.get("/api/games", (req, res) => {
+  const { providerCode } = req.query;
+  const result = providerCode
+    ? games.filter((game) => game.providerCode === providerCode)
+    : games;
+
+  res.status(200).json(result);
 });
 
 app.listen(port, "0.0.0.0", () => {
