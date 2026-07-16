@@ -76,8 +76,8 @@ app.get("/api/games", (req, res) => {
 });
 
 app.post("/api/launch", (req, res) => {
-  const { providerCode, gameCode, playerId, currency, mode = "REAL" } = req.body;
-  const requiredFields = { providerCode, gameCode, playerId, currency };
+  const { providerCode, gameCode, playerId, currency, token, mode = "REAL" } = req.body;
+  const requiredFields = { providerCode, gameCode, playerId, currency, token };
   const missingFields = Object.entries(requiredFields)
     .filter(([, value]) => value === undefined || value === null || value === "")
     .map(([field]) => field);
@@ -85,6 +85,12 @@ app.post("/api/launch", (req, res) => {
   if (missingFields.length > 0) {
     return res.status(400).json({
       error: `Missing required fields: ${missingFields.join(", ")}`
+    });
+  }
+
+  if (typeof token !== "string" || token.trim() === "") {
+    return res.status(400).json({
+      error: "token must be a non-empty string"
     });
   }
 
@@ -117,6 +123,7 @@ app.post("/api/launch", (req, res) => {
     gameCode,
     playerId,
     currency,
+    token,
     mode: "REAL",
     status: "ACTIVE",
     createdAt: new Date().toISOString()
@@ -135,7 +142,16 @@ app.get("/api/sessions/:sessionId", (req, res) => {
     return res.status(404).json({ error: "Session not found" });
   }
 
-  return res.status(200).json(session);
+  return res.status(200).json({
+    sessionId: session.sessionId,
+    providerCode: session.providerCode,
+    gameCode: session.gameCode,
+    playerId: session.playerId,
+    currency: session.currency,
+    mode: session.mode,
+    status: session.status,
+    createdAt: session.createdAt
+  });
 });
 
 app.listen(port, "0.0.0.0", () => {
