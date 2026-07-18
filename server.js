@@ -1,6 +1,13 @@
 const express = require("express");
 const path = require("path");
-const { createSession, getPublicSession, closeSession } = require("./src/sessions/session-store");
+const {
+  createSession,
+  getSession,
+  getPublicSession,
+  closeSession,
+  markAuthenticated
+} = require("./src/sessions/session-store");
+const { authenticate: authenticateWithOperator } = require("./src/clients/operator-wallet-client");
 
 const app = express();
 const port = process.env.PORT || 8090;
@@ -44,6 +51,15 @@ const games = [
   createGame("EMBER_FIRE_REELS", "EMBER_GAMES", "Fire Reels", "/images/fire-reels.jpg"),
   createGame("EMBER_DRAGON_COINS", "EMBER_GAMES", "Dragon Coins", "/images/dragon-coins.jpg")
 ];
+
+const getAuthenticateResponse = (session) => ({
+  sessionId: session.sessionId,
+  playerId: session.playerId,
+  currency: session.currency,
+  cash: session.cash,
+  bonus: session.bonus,
+  authenticatedAt: session.authenticatedAt
+});
 
 app.use(express.json());
 app.use(express.static(path.join(__dirname, "public")));
@@ -151,6 +167,61 @@ app.post("/api/sessions/:sessionId/close", (req, res) => {
   }
 
   return res.status(200).json(getPublicSession(session.sessionId));
+});
+
+app.post("/api/sessions/:sessionId/authenticate", async (req, res) => {
+  const session = getSession(req.params.sessionId);
+
+  if (!session) {
+    return res.status(404).json({ error: "Session not found" });
+  }
+
+  if (session.status !== "ACTIVE") {
+    return res.status(409).json({ error: "Session is not active" });
+  }
+
+  if (session.authenticatedAt) {
+    return res.status(200).json(getAuthenticateResponse(session));
+  }
+
+  try {
+    const operatorResponse = await authenticateWithOperator({
+      token: session.token,
+      providerCode: session.providerCode,
+      gameCode: session.gameCode,
+      sessionId: session.sessionId
+    });
+
+    if (!operatorResponse || typeof operatorResponse !== "object") {
+      return res.status(502).json({ error: "Invalid operator authentication response" });
+    }
+
+    const playerId = operatorResponse.playerId || operatorResponse.userId;
+    const bonus = operatorResponse.bonus ?? 0;
+    const invalidResponse = !playerId
+      || !operatorResponse.currency
+      || !Number.isFinite(operatorResponse.cash)
+      || !Number.isFinite(bonus);
+
+    if (invalidResponse) {
+      return res.status(502).json({ error: "Invalid operator authentication response" });
+    }
+
+    if (playerId !== session.playerId || operatorResponse.currency !== session.currency) {
+      return res.status(502).json({ error: "Operator authentication does not match session" });
+    }
+
+    const authenticatedSession = markAuthenticated(session.sessionId, {
+      playerId,
+      currency: operatorResponse.currency,
+      cash: operatorResponse.cash,
+      bonus
+    });
+
+    return res.status(200).json(getAuthenticateResponse(authenticatedSession));
+  } catch {
+    return res.status(502).json({ error: "Operator authentication failed" });
+  }
 });
 
 app.listen(port, "0.0.0.0", () => {

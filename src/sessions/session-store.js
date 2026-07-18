@@ -26,6 +26,8 @@ const createSession = (data) => {
     lastActivityAt: createdAt,
     expiresAt: new Date(now.getTime() + getSessionTtlMs()).toISOString(),
     authenticatedAt: null,
+    cash: null,
+    bonus: null,
     closedAt: null,
     expiredAt: null
   };
@@ -71,12 +73,16 @@ const closeSession = (sessionId) => {
   return session;
 };
 
-const markAuthenticated = (sessionId) => {
+const markAuthenticated = (sessionId, data) => {
   const session = getSession(sessionId);
   if (!session) {
     return null;
   }
 
+  session.playerId = data.playerId;
+  session.currency = data.currency;
+  session.cash = data.cash;
+  session.bonus = data.bonus;
   session.authenticatedAt = new Date().toISOString();
   return session;
 };
