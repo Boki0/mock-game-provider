@@ -1,11 +1,13 @@
 const express = require("express");
-const crypto = require("crypto");
 const path = require("path");
+const {
+  createSession,
+  getPublicSession
+} = require("./src/sessions/session-store");
 
 const app = express();
 const port = process.env.PORT || 8090;
 const providerBaseUrl = (process.env.PROVIDER_BASE_URL || "http://localhost:8090").replace(/\/+$/, "");
-const sessions = new Map();
 
 const providers = [
   { providerCode: "AURORA_PLAY", name: "Aurora Play", active: true },
@@ -116,42 +118,26 @@ app.post("/api/launch", (req, res) => {
     });
   }
 
-  const sessionId = crypto.randomUUID();
-  const session = {
-    sessionId,
+  const session = createSession({
     providerCode,
     gameCode,
     playerId,
     currency,
-    token,
-    mode: "REAL",
-    status: "ACTIVE",
-    createdAt: new Date().toISOString()
-  };
+    token
+  });
 
-  sessions.set(sessionId, session);
-
-  const launchUrl = `${providerBaseUrl}/games/lucky-seven/?sessionId=${encodeURIComponent(sessionId)}`;
-  return res.status(200).json({ sessionId, launchUrl });
+  const launchUrl = `${providerBaseUrl}/games/lucky-seven/?sessionId=${encodeURIComponent(session.sessionId)}`;
+  return res.status(200).json({ sessionId: session.sessionId, launchUrl });
 });
 
 app.get("/api/sessions/:sessionId", (req, res) => {
-  const session = sessions.get(req.params.sessionId);
+  const session = getPublicSession(req.params.sessionId);
 
   if (!session) {
     return res.status(404).json({ error: "Session not found" });
   }
 
-  return res.status(200).json({
-    sessionId: session.sessionId,
-    providerCode: session.providerCode,
-    gameCode: session.gameCode,
-    playerId: session.playerId,
-    currency: session.currency,
-    mode: session.mode,
-    status: session.status,
-    createdAt: session.createdAt
-  });
+  return res.status(200).json(session);
 });
 
 app.listen(port, "0.0.0.0", () => {
