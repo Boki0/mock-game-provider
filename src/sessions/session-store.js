@@ -79,6 +79,10 @@ const closeSession = (sessionId) => {
     return null;
   }
 
+  if (session.status !== "ACTIVE") {
+    return session;
+  }
+
   session.status = "CLOSED";
   session.closedAt = new Date().toISOString();
   return session;

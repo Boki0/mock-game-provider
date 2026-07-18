@@ -2,7 +2,8 @@ const express = require("express");
 const path = require("path");
 const {
   createSession,
-  getPublicSession
+  getPublicSession,
+  closeSession
 } = require("./src/sessions/session-store");
 
 const app = express();
@@ -130,7 +131,7 @@ app.post("/api/launch", (req, res) => {
   return res.status(200).json({ sessionId: session.sessionId, launchUrl });
 });
 
-app.get("/api/sessions/:sessionId", (req, res) => {
+const getSessionHandler = (req, res) => {
   const session = getPublicSession(req.params.sessionId);
 
   if (!session) {
@@ -138,8 +139,33 @@ app.get("/api/sessions/:sessionId", (req, res) => {
   }
 
   return res.status(200).json(session);
-});
+};
 
-app.listen(port, "0.0.0.0", () => {
-  console.log(`Mock game provider is running on port ${port}`);
-});
+const closeSessionHandler = (req, res) => {
+  const session = closeSession(req.params.sessionId);
+
+  if (!session) {
+    return res.status(404).json({ error: "Session not found" });
+  }
+
+  if (session.status === "EXPIRED") {
+    return res.status(409).json({
+      error: "Expired session cannot be closed"
+    });
+  }
+
+  return res.status(200).json(getPublicSession(session.sessionId));
+};
+
+app.get("/api/sessions/:sessionId", getSessionHandler);
+app.post("/api/sessions/:sessionId/close", closeSessionHandler);
+
+if (require.main === module) {
+  app.listen(port, "0.0.0.0", () => {
+    console.log(`Mock game provider is running on port ${port}`);
+  });
+}
+
+module.exports = app;
+module.exports.getSessionHandler = getSessionHandler;
+module.exports.closeSessionHandler = closeSessionHandler;

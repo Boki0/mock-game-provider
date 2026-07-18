@@ -75,13 +75,34 @@ test("touches a session", async () => {
   assert.equal(touchSession("missing-session"), null);
 });
 
-test("closes a session", () => {
+test("closes an active session idempotently", async () => {
   const session = createTestSession();
   const closedSession = closeSession(session.sessionId);
 
   assert.equal(closedSession.status, "CLOSED");
   assert.ok(Number.isFinite(Date.parse(closedSession.closedAt)));
+  const originalClosedAt = closedSession.closedAt;
+
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  const closedAgain = closeSession(session.sessionId);
+
+  assert.equal(closedAgain, session);
+  assert.equal(closedAgain.status, "CLOSED");
+  assert.equal(closedAgain.closedAt, originalClosedAt);
   assert.equal(closeSession("missing-session"), null);
+});
+
+test("does not close an expired session", () => {
+  const session = createTestSession();
+  markExpired(session.sessionId);
+  const originalExpiredAt = session.expiredAt;
+
+  const result = closeSession(session.sessionId);
+
+  assert.equal(result, session);
+  assert.equal(result.status, "EXPIRED");
+  assert.equal(result.expiredAt, originalExpiredAt);
+  assert.equal(result.closedAt, null);
 });
 
 test("marks a session as authenticated", () => {
