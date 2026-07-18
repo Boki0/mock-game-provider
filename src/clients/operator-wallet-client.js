@@ -22,22 +22,11 @@ const post = async (path, payload) => {
     body: JSON.stringify(payload)
   });
 
-  let responseBody;
-  try {
-    responseBody = await response.json();
-  } catch (error) {
-    if (!response.ok) {
-      throw new Error(`Operator wallet request failed with HTTP ${response.status}`);
-    }
-
-    throw new Error("Operator wallet response is not valid JSON");
-  }
-
   if (!response.ok) {
     throw new Error(`Operator wallet request failed with HTTP ${response.status}`);
   }
 
-  return responseBody;
+  return response.json();
 };
 
 const authenticate = (payload) => post(paths.authenticate, payload);

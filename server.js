@@ -1,10 +1,6 @@
 const express = require("express");
 const path = require("path");
-const {
-  createSession,
-  getPublicSession,
-  closeSession
-} = require("./src/sessions/session-store");
+const { createSession, getPublicSession, closeSession } = require("./src/sessions/session-store");
 
 const app = express();
 const port = process.env.PORT || 8090;
@@ -131,7 +127,7 @@ app.post("/api/launch", (req, res) => {
   return res.status(200).json({ sessionId: session.sessionId, launchUrl });
 });
 
-const getSessionHandler = (req, res) => {
+app.get("/api/sessions/:sessionId", (req, res) => {
   const session = getPublicSession(req.params.sessionId);
 
   if (!session) {
@@ -139,9 +135,9 @@ const getSessionHandler = (req, res) => {
   }
 
   return res.status(200).json(session);
-};
+});
 
-const closeSessionHandler = (req, res) => {
+app.post("/api/sessions/:sessionId/close", (req, res) => {
   const session = closeSession(req.params.sessionId);
 
   if (!session) {
@@ -155,17 +151,8 @@ const closeSessionHandler = (req, res) => {
   }
 
   return res.status(200).json(getPublicSession(session.sessionId));
-};
+});
 
-app.get("/api/sessions/:sessionId", getSessionHandler);
-app.post("/api/sessions/:sessionId/close", closeSessionHandler);
-
-if (require.main === module) {
-  app.listen(port, "0.0.0.0", () => {
-    console.log(`Mock game provider is running on port ${port}`);
-  });
-}
-
-module.exports = app;
-module.exports.getSessionHandler = getSessionHandler;
-module.exports.closeSessionHandler = closeSessionHandler;
+app.listen(port, "0.0.0.0", () => {
+  console.log(`Mock game provider is running on port ${port}`);
+});

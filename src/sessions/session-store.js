@@ -4,10 +4,6 @@ const sessions = new Map();
 const DEFAULT_SESSION_TTL_MS = 15 * 60 * 1000;
 
 const getSessionTtlMs = () => {
-  if (process.env.SESSION_TTL_MS === undefined) {
-    return DEFAULT_SESSION_TTL_MS;
-  }
-
   const configuredTtl = Number(process.env.SESSION_TTL_MS);
   return Number.isFinite(configuredTtl) && configuredTtl >= 0
     ? configuredTtl
@@ -46,21 +42,8 @@ const getPublicSession = (sessionId) => {
     return null;
   }
 
-  return {
-    sessionId: session.sessionId,
-    providerCode: session.providerCode,
-    gameCode: session.gameCode,
-    playerId: session.playerId,
-    currency: session.currency,
-    mode: session.mode,
-    status: session.status,
-    createdAt: session.createdAt,
-    lastActivityAt: session.lastActivityAt,
-    expiresAt: session.expiresAt,
-    authenticatedAt: session.authenticatedAt,
-    closedAt: session.closedAt,
-    expiredAt: session.expiredAt
-  };
+  const { token, ...publicSession } = session;
+  return publicSession;
 };
 
 const touchSession = (sessionId) => {
