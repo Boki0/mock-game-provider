@@ -1,13 +1,23 @@
 const express = require("express");
 const path = require("path");
+const crypto = require("crypto");
 const {
   createSession,
   getSession,
   getPublicSession,
+  touchSession,
   closeSession,
   markAuthenticated
 } = require("./src/sessions/session-store");
-const { authenticate: authenticateWithOperator } = require("./src/clients/operator-wallet-client");
+const {
+  authenticate: authenticateWithOperator,
+  placeBet
+} = require("./src/clients/operator-wallet-client");
+const {
+  createRound,
+  getBetResponse,
+  saveBetResponse
+} = require("./src/rounds/round-store");
 
 const app = express();
 const port = process.env.PORT || 8090;
@@ -221,6 +231,136 @@ app.post("/api/sessions/:sessionId/authenticate", async (req, res) => {
     return res.status(200).json(getAuthenticateResponse(authenticatedSession));
   } catch {
     return res.status(502).json({ error: "Operator authentication failed" });
+  }
+});
+
+app.post("/api/sessions/:sessionId/bet", async (req, res) => {
+  const session = getSession(req.params.sessionId);
+
+  if (!session) {
+    return res.status(404).json({ error: "Session not found" });
+  }
+
+  if (session.status !== "ACTIVE") {
+    return res.status(409).json({ error: "Session is not active" });
+  }
+
+  if (!session.authenticatedAt) {
+    return res.status(409).json({ error: "Session is not authenticated" });
+  }
+
+  const requestedAmount = req.body?.amount;
+  if (typeof requestedAmount !== "number" || !Number.isFinite(requestedAmount) || requestedAmount <= 0) {
+    return res.status(400).json({ error: "amount must be a positive number" });
+  }
+
+  const amount = Math.round((requestedAmount + Number.EPSILON) * 100) / 100;
+  if (amount <= 0) {
+    return res.status(400).json({ error: "amount is too small" });
+  }
+
+  const roundId = crypto.randomUUID();
+  const reference = crypto.randomUUID();
+  const previousResponse = getBetResponse(reference);
+
+  if (previousResponse) {
+    return res.status(200).json(previousResponse);
+  }
+
+  const operatorBet = {
+    userId: session.playerId,
+    gameId: session.gameCode,
+    roundId,
+    amount,
+    reference,
+    providerId: session.providerCode,
+    timestamp: Date.now(),
+    roundDetails: "spin",
+    platform: ["WEB", "MOBILE"].includes(session.platform) ? session.platform : "WEB",
+    language: session.language || "en",
+    token: session.token
+  };
+  const ipAddress = req.ip && req.ip.replace(/^::ffff:/, "");
+
+  if (ipAddress) {
+    operatorBet.ipAddress = ipAddress === "::1" ? "127.0.0.1" : ipAddress;
+  }
+
+  for (const field of ["bonusCode", "jackpotId", "jackpotContribution", "jackpotDetails"]) {
+    if (session[field] !== undefined && session[field] !== null && session[field] !== "") {
+      operatorBet[field] = session[field];
+    }
+  }
+
+  try {
+    const operatorResponse = await placeBet(operatorBet);
+
+    if (!operatorResponse || typeof operatorResponse !== "object") {
+      return res.status(502).json({ error: "Invalid operator bet response" });
+    }
+
+    if (operatorResponse.error === undefined || operatorResponse.error === null) {
+      return res.status(502).json({ error: "Invalid operator bet response" });
+    }
+
+    if (operatorResponse.error !== 0 && operatorResponse.error !== "0") {
+      return res.status(422).json({ error: "Bet rejected by operator" });
+    }
+
+    const bonus = operatorResponse.bonus ?? 0;
+    const usedPromo = operatorResponse.usedPromo ?? 0;
+    const transactionIdIsValid = (
+      typeof operatorResponse.transactionId === "string" && operatorResponse.transactionId !== ""
+    ) || (
+      typeof operatorResponse.transactionId === "number" && Number.isFinite(operatorResponse.transactionId)
+    );
+    const invalidResponse = !transactionIdIsValid
+      || !operatorResponse.currency
+      || !Number.isFinite(operatorResponse.cash)
+      || !Number.isFinite(bonus)
+      || !Number.isFinite(usedPromo)
+      || operatorResponse.currency !== session.currency;
+
+    if (invalidResponse) {
+      return res.status(502).json({ error: "Invalid operator bet response" });
+    }
+
+    const frontendResponse = {
+      roundId,
+      transactionId: operatorResponse.transactionId,
+      reference,
+      amount,
+      currency: operatorResponse.currency,
+      cash: operatorResponse.cash,
+      bonus,
+      usedPromo,
+      status: "BET_ACCEPTED"
+    };
+
+    createRound({
+      roundId,
+      sessionId: session.sessionId,
+      userId: session.playerId,
+      providerId: session.providerCode,
+      gameId: session.gameCode,
+      betReference: reference,
+      betTransactionId: operatorResponse.transactionId,
+      betAmount: amount,
+      currency: operatorResponse.currency,
+      cashAfterBet: operatorResponse.cash,
+      bonusAfterBet: bonus,
+      usedPromo,
+      status: "BET_ACCEPTED"
+    });
+
+    session.cash = operatorResponse.cash;
+    session.bonus = bonus;
+    touchSession(session.sessionId);
+    saveBetResponse(reference, frontendResponse);
+
+    return res.status(200).json(frontendResponse);
+  } catch {
+    return res.status(502).json({ error: "Operator bet request failed" });
   }
 });
 

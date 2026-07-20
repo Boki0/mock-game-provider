@@ -38,21 +38,116 @@
       font-size: 1.1rem;
       text-align: center;
     }
+    #game-message {
+      position: fixed;
+      top: 1rem;
+      left: 50%;
+      z-index: 10;
+      padding: 0.75rem 1rem;
+      transform: translateX(-50%);
+      border-radius: 0.4rem;
+      background: rgba(5, 2, 15, 0.92);
+      color: #fff;
+      font-family: Arial, sans-serif;
+    }
   </style>
 </head>
 <body>
   <div id="game-error" role="alert" hidden></div>
+  <div id="game-message" role="status" hidden></div>
   <div id="slot-machine" hidden></div>
   <script>
     (async function initializeGame() {
       const gameContainer = document.getElementById("slot-machine");
       const errorContainer = document.getElementById("game-error");
+      const messageContainer = document.getElementById("game-message");
       const sessionId = new URLSearchParams(window.location.search).get("sessionId");
 
       function showError(message) {
         gameContainer.hidden = true;
         errorContainer.textContent = message;
         errorContainer.hidden = false;
+      }
+
+      function showGameMessage(message) {
+        messageContainer.textContent = message;
+        messageContainer.hidden = !message;
+      }
+
+      function connectSpinToBet() {
+        let approvedSpin = false;
+        let betPending = false;
+
+        gameContainer.addEventListener("click", async (event) => {
+          const spinButton = event.target.closest?.(".smg-spin");
+          if (!spinButton) {
+            return;
+          }
+
+          if (approvedSpin) {
+            approvedSpin = false;
+            return;
+          }
+
+          event.preventDefault();
+          event.stopPropagation();
+          event.stopImmediatePropagation();
+
+          if (betPending || spinButton.disabled) {
+            return;
+          }
+
+          const betValue = gameContainer.querySelector(".smg-bet > .smg-value");
+          const amount = Number(betValue?.textContent);
+          if (!Number.isFinite(amount) || amount <= 0) {
+            showGameMessage("Bet could not be placed.");
+            return;
+          }
+
+          let betAccepted = false;
+          betPending = true;
+          spinButton.disabled = true;
+          showGameMessage("");
+
+          try {
+            const betResponse = await fetch(
+              `/api/sessions/${encodeURIComponent(sessionId)}/bet`,
+              {
+                method: "POST",
+                headers: {
+                  Accept: "application/json",
+                  "Content-Type": "application/json"
+                },
+                body: JSON.stringify({ amount })
+              }
+            );
+
+            if (!betResponse.ok) {
+              throw new Error("Bet rejected");
+            }
+
+            const bet = await betResponse.json();
+            if (!Number.isFinite(bet.cash) || !Number.isFinite(bet.bonus)) {
+              throw new Error("Invalid bet balance");
+            }
+
+            gameSession.cash = bet.cash;
+            gameSession.bonus = bet.bonus;
+            gameContainer.querySelector(".smg-balance .smg-value").textContent = bet.cash.toFixed(2);
+
+            betAccepted = true;
+            approvedSpin = true;
+            spinButton.disabled = false;
+            spinButton.click();
+          } catch {
+            showGameMessage("Bet could not be placed.");
+          } finally {
+            betPending = false;
+            if (!betAccepted) {
+              spinButton.disabled = false;
+            }
+          }
+        }, true);
       }
 
       errorContainer.textContent = "Loading game session...";
@@ -115,9 +210,10 @@
         errorContainer.hidden = true;
 
         gameContainer.hidden = false;
+        connectSpinToBet();
 
         const gameScript = document.createElement("script");
-        gameScript.src = "assets/js/main.js?v=operator-wallet-balance";
+        gameScript.src = "assets/js/main.js?v=pragmatic-bet";
         gameScript.onerror = () => {
           showError("Unable to launch game: game assets could not be loaded.");
         };
