@@ -25,4 +25,16 @@ Successful response:
 
 The provider reads the operator token from its internal session. The browser does not send or receive the token.
 
-The Lucky Seven frontend is not connected to this endpoint yet.
+## Game startup flow
+
+The Lucky Seven frontend now:
+
+1. Reads `sessionId` from the launch URL.
+2. Verifies that the provider session is `ACTIVE`.
+3. Calls `POST /api/sessions/:sessionId/authenticate` without a request body.
+4. Uses the operator `cash` as the initial game balance and displays its currency.
+5. Loads the gameplay script only after authentication succeeds.
+
+Spin still uses the local visual demo and does not change the operator cash balance. Bet and Result callbacks are not connected yet.
+
+The game does not read or persist the wallet balance in browser storage.

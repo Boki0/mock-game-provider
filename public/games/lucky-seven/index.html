@@ -6,9 +6,14 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <link rel="stylesheet" href="assets/css/main.css">
   <script>
-  var slotMachineConfig = {
-    //
-  }
+    const gameSession = {
+      sessionId: null,
+      playerId: null,
+      currency: null,
+      cash: null,
+      bonus: null
+    };
+    var slotMachineConfig = {};
   </script>
   <style>
     body {
@@ -50,6 +55,9 @@
         errorContainer.hidden = false;
       }
 
+      errorContainer.textContent = "Loading game session...";
+      errorContainer.hidden = false;
+
       if (!sessionId) {
         showError("Unable to launch game: sessionId is required.");
         return;
@@ -71,10 +79,45 @@
           return;
         }
 
+        const authenticateResponse = await fetch(
+          `/api/sessions/${encodeURIComponent(sessionId)}/authenticate`,
+          {
+            method: "POST",
+            headers: { Accept: "application/json" }
+          }
+        );
+
+        if (!authenticateResponse.ok) {
+          showError("Unable to launch game: authentication failed.");
+          return;
+        }
+
+        const authenticatedSession = await authenticateResponse.json();
+        if (!authenticatedSession.currency || !Number.isFinite(authenticatedSession.cash)) {
+          showError("Unable to launch game: invalid balance data.");
+          return;
+        }
+
+        Object.assign(gameSession, {
+          sessionId: authenticatedSession.sessionId,
+          playerId: authenticatedSession.playerId,
+          currency: authenticatedSession.currency,
+          cash: authenticatedSession.cash,
+          bonus: authenticatedSession.bonus
+        });
+
+        slotMachineConfig.balance = gameSession.cash;
+        slotMachineConfig.textStrings = {
+          Balance: `Balance (${gameSession.currency})`
+        };
+
+        // Demo spins keep this operator balance unchanged until Bet and Result are connected.
+        errorContainer.hidden = true;
+
         gameContainer.hidden = false;
 
         const gameScript = document.createElement("script");
-        gameScript.src = "assets/js/main.js";
+        gameScript.src = "assets/js/main.js?v=operator-wallet-balance";
         gameScript.onerror = () => {
           showError("Unable to launch game: game assets could not be loaded.");
         };
