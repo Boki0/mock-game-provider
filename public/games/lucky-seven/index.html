@@ -11,7 +11,9 @@
       playerId: null,
       currency: null,
       cash: null,
-      bonus: null
+      bonus: null,
+      roundId: null,
+      resultPending: false
     };
     var slotMachineConfig = {};
   </script>
@@ -74,6 +76,54 @@
         messageContainer.hidden = !message;
       }
 
+      async function processSpinResult(winAmount) {
+        const spinButton = gameContainer.querySelector(".smg-spin");
+        const amount = Math.round((Number(winAmount) + Number.EPSILON) * 100) / 100;
+
+        if (!gameSession.roundId || !Number.isFinite(amount) || amount < 0) {
+          showGameMessage("Result could not be processed.");
+          gameSession.resultPending = true;
+          spinButton.disabled = true;
+          return;
+        }
+
+        try {
+          const resultResponse = await fetch(
+            `/api/rounds/${encodeURIComponent(gameSession.roundId)}/result`,
+            {
+              method: "POST",
+              headers: {
+                Accept: "application/json",
+                "Content-Type": "application/json"
+              },
+              body: JSON.stringify({ amount, roundDetails: "spin" })
+            }
+          );
+
+          if (!resultResponse.ok) {
+            throw new Error("Result rejected");
+          }
+
+          const result = await resultResponse.json();
+          if (!Number.isFinite(result.cash) || !Number.isFinite(result.bonus)) {
+            throw new Error("Invalid result balance");
+          }
+
+          gameSession.cash = result.cash;
+          gameSession.bonus = result.bonus;
+          gameSession.roundId = null;
+          gameSession.resultPending = false;
+          gameContainer.querySelector(".smg-balance .smg-value").textContent = result.cash.toFixed(2);
+          showGameMessage("");
+          spinButton.disabled = false;
+          return result.cash;
+        } catch {
+          showGameMessage("Result could not be processed.");
+          gameSession.resultPending = true;
+          spinButton.disabled = true;
+        }
+      }
+
       function connectSpinToBet() {
         let approvedSpin = false;
         let betPending = false;
@@ -94,6 +144,11 @@
           event.stopImmediatePropagation();
 
           if (betPending || spinButton.disabled) {
+            return;
+          }
+
+          if (gameSession.roundId) {
+            showGameMessage("Result could not be processed.");
             return;
           }
 
@@ -133,6 +188,8 @@
 
             gameSession.cash = bet.cash;
             gameSession.bonus = bet.bonus;
+            gameSession.roundId = bet.roundId;
+            gameSession.resultPending = true;
             gameContainer.querySelector(".smg-balance .smg-value").textContent = bet.cash.toFixed(2);
 
             betAccepted = true;
@@ -205,15 +262,16 @@
         slotMachineConfig.textStrings = {
           Balance: `Balance (${gameSession.currency})`
         };
+        slotMachineConfig.onSpinResult = processSpinResult;
 
-        // Demo spins keep this operator balance unchanged until Bet and Result are connected.
+        // The game calculates symbols and win amount; operator callbacks own the wallet balance.
         errorContainer.hidden = true;
 
         gameContainer.hidden = false;
         connectSpinToBet();
 
         const gameScript = document.createElement("script");
-        gameScript.src = "assets/js/main.js?v=pragmatic-bet";
+        gameScript.src = "assets/js/main.js?v=pragmatic-result";
         gameScript.onerror = () => {
           showError("Unable to launch game: game assets could not be loaded.");
         };

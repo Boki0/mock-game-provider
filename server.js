@@ -11,12 +11,18 @@ const {
 } = require("./src/sessions/session-store");
 const {
   authenticate: authenticateWithOperator,
-  placeBet
+  placeBet,
+  sendResult
 } = require("./src/clients/operator-wallet-client");
 const {
   createRound,
+  getRound,
   getBetResponse,
-  saveBetResponse
+  saveBetResponse,
+  setResultReference,
+  completeRound,
+  getResultResponse,
+  saveResultResponse
 } = require("./src/rounds/round-store");
 
 const app = express();
@@ -361,6 +367,143 @@ app.post("/api/sessions/:sessionId/bet", async (req, res) => {
     return res.status(200).json(frontendResponse);
   } catch {
     return res.status(502).json({ error: "Operator bet request failed" });
+  }
+});
+
+app.post("/api/rounds/:roundId/result", async (req, res) => {
+  const round = getRound(req.params.roundId);
+
+  if (!round) {
+    return res.status(404).json({ error: "Round not found" });
+  }
+
+  if (round.status === "COMPLETED") {
+    const previousResponse = getResultResponse(round.resultReference);
+    return previousResponse
+      ? res.status(200).json(previousResponse)
+      : res.status(409).json({ error: "Round is already completed" });
+  }
+
+  if (round.status !== "BET_ACCEPTED") {
+    return res.status(409).json({ error: "Round cannot accept a result" });
+  }
+
+  const session = getSession(round.sessionId);
+  if (!session) {
+    return res.status(404).json({ error: "Session not found" });
+  }
+
+  if (session.status !== "ACTIVE") {
+    return res.status(409).json({ error: "Session is not active" });
+  }
+
+  const requestedAmount = req.body?.amount;
+  if (typeof requestedAmount !== "number" || !Number.isFinite(requestedAmount) || requestedAmount < 0) {
+    return res.status(400).json({ error: "amount must be a non-negative number" });
+  }
+
+  const amount = Math.round((requestedAmount + Number.EPSILON) * 100) / 100;
+  const roundDetails = typeof req.body?.roundDetails === "string" && req.body.roundDetails
+    ? req.body.roundDetails
+    : "spin";
+  let reference = round.resultReference;
+
+  if (!reference) {
+    do {
+      reference = crypto.randomUUID();
+    } while (reference === round.betReference);
+    setResultReference(round.roundId, reference);
+  }
+
+  const previousResponse = getResultResponse(reference);
+  if (previousResponse) {
+    return res.status(200).json(previousResponse);
+  }
+
+  const operatorResult = {
+    userId: round.userId || session.playerId,
+    gameId: round.gameId || session.gameCode,
+    roundId: round.roundId,
+    amount,
+    reference,
+    providerId: round.providerId || session.providerCode,
+    timestamp: Date.now(),
+    roundDetails,
+    platform: ["WEB", "MOBILE"].includes(session.platform) ? session.platform : "WEB",
+    token: session.token
+  };
+
+  for (const field of [
+    "bonusCode",
+    "promoWinAmount",
+    "promoWinReference",
+    "promoCampaignID",
+    "promoCampaignType"
+  ]) {
+    const value = round[field] ?? session[field];
+    if (value !== undefined && value !== null && value !== "") {
+      operatorResult[field] = value;
+    }
+  }
+
+  try {
+    const operatorResponse = await sendResult(operatorResult);
+
+    if (!operatorResponse || typeof operatorResponse !== "object") {
+      return res.status(502).json({ error: "Invalid operator result response" });
+    }
+
+    if (operatorResponse.error === undefined || operatorResponse.error === null) {
+      return res.status(502).json({ error: "Invalid operator result response" });
+    }
+
+    if (operatorResponse.error !== 0 && operatorResponse.error !== "0") {
+      return res.status(422).json({ error: "Result rejected by operator" });
+    }
+
+    const bonus = operatorResponse.bonus ?? 0;
+    const transactionIdIsValid = (
+      typeof operatorResponse.transactionId === "string" && operatorResponse.transactionId !== ""
+    ) || (
+      typeof operatorResponse.transactionId === "number" && Number.isFinite(operatorResponse.transactionId)
+    );
+    const invalidResponse = !transactionIdIsValid
+      || !operatorResponse.currency
+      || !Number.isFinite(operatorResponse.cash)
+      || !Number.isFinite(bonus)
+      || operatorResponse.currency !== session.currency;
+
+    if (invalidResponse) {
+      return res.status(502).json({ error: "Invalid operator result response" });
+    }
+
+    const frontendResponse = {
+      roundId: round.roundId,
+      transactionId: operatorResponse.transactionId,
+      reference,
+      amount,
+      currency: operatorResponse.currency,
+      cash: operatorResponse.cash,
+      bonus,
+      status: "COMPLETED"
+    };
+
+    saveResultResponse(reference, frontendResponse);
+    completeRound(round.roundId, {
+      resultTransactionId: operatorResponse.transactionId,
+      winAmount: amount,
+      cashAfterResult: operatorResponse.cash,
+      bonusAfterResult: bonus,
+      resultDescription: operatorResponse.description || ""
+    });
+
+    session.cash = operatorResponse.cash;
+    session.bonus = bonus;
+    touchSession(session.sessionId);
+
+    return res.status(200).json(frontendResponse);
+  } catch {
+    return res.status(502).json({ error: "Operator result request failed" });
   }
 });
 

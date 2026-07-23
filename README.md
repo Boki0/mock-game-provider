@@ -35,7 +35,7 @@ The Lucky Seven frontend now:
 4. Uses the operator `cash` as the initial game balance and displays its currency.
 5. Loads the gameplay script only after authentication succeeds.
 
-Spin starts only after the operator accepts the Bet callback. The visual result is still local and does not credit a win because Result is not connected yet.
+Spin starts only after the operator accepts the Bet callback. When the animation finishes, the game sends the calculated gross win to the Result endpoint and displays the final balance returned by the operator.
 
 The game does not read or persist the wallet balance in browser storage.
 
@@ -103,4 +103,69 @@ Frontend response:
 
 The operator is the source of truth for the wallet balance. Rounds and successful Bet responses used for basic reference idempotency are stored in memory and are lost when the provider restarts.
 
-This mock uses JSON for readability. Pragmatic-style form-urlencoded requests, Result, Refund, and EndRound are not implemented yet.
+## Complete a round with Result
+
+After the spin animation calculates the win, the browser completes the existing round:
+
+```http
+POST /api/rounds/ROUND_ID/result
+Content-Type: application/json
+
+{
+  "amount": 500.00,
+  "roundDetails": "spin"
+}
+```
+
+`amount` is the gross win credited by the operator. A value of `0` completes a losing round without adding funds. The previous Bet is not subtracted from this amount.
+
+The provider sends this JSON callback to `POST ${OPERATOR_BASE_URL}/api/provider-wallet/result`:
+
+```json
+{
+  "userId": "player-123",
+  "gameId": "NOVA_SEVEN",
+  "roundId": "provider-round-id",
+  "amount": 500.00,
+  "reference": "provider-result-reference",
+  "providerId": "NOVA_REELS",
+  "timestamp": 1780000001000,
+  "roundDetails": "spin",
+  "platform": "WEB",
+  "token": "operator-generated-token"
+}
+```
+
+Expected operator response:
+
+```json
+{
+  "transactionId": "operator-result-transaction-id",
+  "currency": "EUR",
+  "cash": 1480.00,
+  "bonus": 0.00,
+  "error": 0,
+  "description": "Success"
+}
+```
+
+Frontend response:
+
+```json
+{
+  "roundId": "provider-round-id",
+  "transactionId": "operator-result-transaction-id",
+  "reference": "provider-result-reference",
+  "amount": 500.00,
+  "currency": "EUR",
+  "cash": 1480.00,
+  "bonus": 0.00,
+  "status": "COMPLETED"
+}
+```
+
+Bet and Result use the same `roundId`, but each has its own generated reference. A repeated Result request for a completed round returns the stored response and does not call the operator or credit the win again.
+
+The frontend never calculates the wallet balance. It displays the Bet balance and then replaces it with the final Result balance returned by the operator. Result references and responses are kept only in memory and are lost when the provider restarts.
+
+This mock uses JSON for readability instead of Pragmatic-style form-urlencoded requests. Refund and EndRound are not implemented yet.
