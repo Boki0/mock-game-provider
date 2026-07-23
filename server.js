@@ -27,7 +27,12 @@ const {
 
 const app = express();
 const port = process.env.PORT || 8090;
-const providerBaseUrl = (process.env.PROVIDER_BASE_URL || "http://localhost:8090").replace(/\/+$/, "");
+const configuredProviderBaseUrl = process.env.PROVIDER_BASE_URL?.replace(/\/+$/, "");
+
+app.set("trust proxy", true);
+
+const getProviderBaseUrl = (req) =>
+  configuredProviderBaseUrl || `${req.protocol}://${req.get("host")}`;
 
 const providers = [
   { providerCode: "AURORA_PLAY", name: "Aurora Play", active: true },
@@ -102,8 +107,14 @@ app.get("/api/games", (req, res) => {
   const result = providerCode
     ? games.filter((game) => game.providerCode === providerCode)
     : games;
+  const providerBaseUrl = getProviderBaseUrl(req);
 
-  res.status(200).json(result);
+  res.status(200).json(
+    result.map((game) => ({
+      ...game,
+      imgUrl: `${providerBaseUrl}${game.imgUrl}`
+    }))
+  );
 });
 
 app.post("/api/launch", (req, res) => {
@@ -155,7 +166,7 @@ app.post("/api/launch", (req, res) => {
     token
   });
 
-  const launchUrl = `${providerBaseUrl}/games/lucky-seven/?sessionId=${encodeURIComponent(session.sessionId)}`;
+  const launchUrl = `${getProviderBaseUrl(req)}/games/lucky-seven/?sessionId=${encodeURIComponent(session.sessionId)}`;
   return res.status(200).json({ sessionId: session.sessionId, launchUrl });
 });
 
